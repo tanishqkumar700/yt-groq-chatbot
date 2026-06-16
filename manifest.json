@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "YouTube Context Chatbot",
+  "version": "1.0",
+  "description": "Chat with any YouTube Video powered by Groq and LangChain",
+  "permissions": ["activeTab", "scripting"],
+  "action": {
+    "default_popup": "popup.html"
+  }
+}
