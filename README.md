@@ -22,7 +22,7 @@ A lightweight browser extension that lets you chat directly with any YouTube vid
 
 | Extension UI | Chat Interaction |
 | :---: | :---: |
-| ![UI Screenshot](screenshots/Image2.png) | ![Chat Screenshot]![YouTube Assistant Extension](screenshots/image1.png) |
+| ![UI Screenshot](Screenshots/Image2.png) | ![Chat Screenshot]![YouTube Assistant Extension](Screenshots/Image1.png) |
 
 ---
 
