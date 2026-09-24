@@ -1,7 +1,8 @@
 import os
+import logging
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled
 
 # 🎯 Sahi aur Up-to-date text splitter import jo aapne bataya
@@ -29,7 +30,23 @@ from config import (
     LLM_TEMPERATURE,
 )
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
+logger = logging.getLogger(__name__)
+
 app = FastAPI(title="YouTube Chatbot Backend")
+
+
+@app.get("/health")
+async def health_check():
+    return {
+        "status": "healthy",
+        "service": "youtube-chatbot-backend"
+    }
+
 
 # CORS Setup
 app.add_middleware(
@@ -46,11 +63,56 @@ def format_docs(retrieved_docs):
     return "\n\n".join(doc.page_content for doc in retrieved_docs)
 
 class InitializeRequest(BaseModel):
-    video_id: str
+    video_id: str = Field(
+        ...,
+        min_length=11,
+        max_length=11,
+        description="YouTube video ID"
+    )
+
+    @field_validator("video_id")
+    @classmethod
+    def validate_video_id(cls, value):
+        allowed_characters = set(
+            "abcdefghijklmnopqrstuvwxyz"
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            "0123456789-_"
+        )
+
+        if not all(char in allowed_characters for char in value):
+            raise ValueError("Invalid YouTube video ID format")
+
+        return value
+
 
 class ChatRequest(BaseModel):
-    video_id: str
-    question: str
+    video_id: str = Field(
+        ...,
+        min_length=11,
+        max_length=11,
+        description="YouTube video ID"
+    )
+
+    question: str = Field(
+        ...,
+        min_length=1,
+        max_length=2000,
+        description="Question about the video"
+    )
+
+    @field_validator("video_id")
+    @classmethod
+    def validate_video_id(cls, value):
+        allowed_characters = set(
+            "abcdefghijklmnopqrstuvwxyz"
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            "0123456789-_"
+        )
+
+        if not all(char in allowed_characters for char in value):
+            raise ValueError("Invalid YouTube video ID format")
+
+        return value
 
 
 @app.post("/initialize")
@@ -80,14 +142,34 @@ async def initialize_video(data: InitializeRequest):
         
         # Cache retriever locally for your chat endpoint
         video_cache[video_id] = vector_store.as_retriever(search_type="similarity", search_kwargs={"k": RETRIEVAL_K})
-        print(f"✅ Successfully indexed video: {video_id}")
+        logger.info("Successfully indexed video: %s", video_id)
         return {"status": "success", "message": "Video transcript indexed successfully!"}
         
     except TranscriptsDisabled:
-        raise HTTPException(status_code=400, detail="Captions are disabled for this YouTube video.")
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "CAPTIONS_DISABLED",
+                "message": "Captions are disabled for this YouTube video."
+            }
+        )
+
+    except HTTPException:
+        raise
+
     except Exception as e:
-        print(f"❌ Error during initialization: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(
+            "Error during initialization for video %s: %s",
+            video_id,
+            str(e)
+        )
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "INITIALIZATION_FAILED",
+                "message": "Unable to process this YouTube video."
+            }
+        )
 
 
 @app.post("/chat")
@@ -125,10 +207,25 @@ async def chat_with_video(data: ChatRequest):
         
         answer = main_chain.invoke(data.question)
         return {"answer": answer}
-        
+
+    except HTTPException:
+        raise
+
     except Exception as e:
-        print(f"❌ Error during chat: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(
+            "Error during chat for video %s: %s",
+            video_id,
+            str(e)
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "CHAT_FAILED",
+                "message": "Unable to generate an answer for this question."
+            }
+        )
+
 
 if __name__ == "__main__":
     import uvicorn
