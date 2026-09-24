@@ -17,8 +17,17 @@ from langchain_groq import ChatGroq
 from langchain_huggingface import HuggingFaceEmbeddings
 
 # Load variables safely from the .env file
-from dotenv import load_dotenv
-load_dotenv()
+# from dotenv import load_dotenv
+# load_dotenv()
+
+from config import (
+    EMBEDDING_MODEL,
+    CHUNK_SIZE,
+    CHUNK_OVERLAP,
+    RETRIEVAL_K,
+    LLM_MODEL,
+    LLM_TEMPERATURE,
+)
 
 app = FastAPI(title="YouTube Chatbot Backend")
 
@@ -60,17 +69,17 @@ async def initialize_video(data: InitializeRequest):
         transcript = " ".join(block.text for block in transcript_obj)
         
         # # 2. Split text using the modern splitter import you verified
-        splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+        splitter = RecursiveCharacterTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
         chunks = splitter.create_documents([transcript])
         
         # # 3. Use standard light-weight embeddings
-        embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
         
         # # 4. Create FAISS Database
         vector_store = FAISS.from_documents(chunks, embeddings)
         
         # Cache retriever locally for your chat endpoint
-        video_cache[video_id] = vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 4})
+        video_cache[video_id] = vector_store.as_retriever(search_type="similarity", search_kwargs={"k": RETRIEVAL_K})
         print(f"✅ Successfully indexed video: {video_id}")
         return {"status": "success", "message": "Video transcript indexed successfully!"}
         
@@ -92,7 +101,7 @@ async def chat_with_video(data: ChatRequest):
         retriever = video_cache[video_id]
         
         # Llama 3.3 70B Model via Groq cloud server
-        llm = ChatGroq(model="openai/gpt-oss-120b", temperature=0.2)
+        llm = ChatGroq(model=LLM_MODEL, temperature=LLM_TEMPERATURE)
         
         prompt = PromptTemplate(
             template="""
