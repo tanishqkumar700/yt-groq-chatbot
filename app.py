@@ -92,7 +92,7 @@ async def chat_with_video(data: ChatRequest):
         retriever = video_cache[video_id]
         
         # Llama 3.3 70B Model via Groq cloud server
-        llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.2)
+        llm = ChatGroq(model="openai/gpt-oss-120b", temperature=0.2)
         
         prompt = PromptTemplate(
             template="""
