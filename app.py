@@ -3,7 +3,7 @@ import logging
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
-from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled
+
 
 # 🎯 Sahi aur Up-to-date text splitter import jo aapne bataya
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -28,6 +28,14 @@ from config import (
     RETRIEVAL_K,
     LLM_MODEL,
     LLM_TEMPERATURE,
+)
+
+from services.transcript_manager import (
+    TranscriptManager,
+    CaptionsUnavailableError,
+    VideoUnavailableError,
+    InvalidVideoIdError,
+    TranscriptFetchError,
 )
 
 logging.basicConfig(
@@ -58,6 +66,8 @@ app.add_middleware(
 )
 
 video_cache = {}
+
+transcript_manager = TranscriptManager()
 
 def format_docs(retrieved_docs):
     return "\n\n".join(doc.page_content for doc in retrieved_docs)
@@ -123,34 +133,71 @@ async def initialize_video(data: InitializeRequest):
         return {"status": "success", "message": "Video already indexed."}
         
     try:
-        # # 1. Fetch transcript from YouTube using the new API format
-        api_instance = YouTubeTranscriptApi()
-        transcript_obj = api_instance.fetch(video_id)
-        
-        # Flatten the modern block objects into a single plain text string
-        transcript = " ".join(block.text for block in transcript_obj)
-        
-        # # 2. Split text using the modern splitter import you verified
-        splitter = RecursiveCharacterTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
+        # 1. Fetch transcript through TranscriptManager
+        transcript = transcript_manager.fetch_youtube_transcript(video_id)
+
+        # 2. Split text using the modern splitter import
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=CHUNK_SIZE,
+            chunk_overlap=CHUNK_OVERLAP
+        )
+
         chunks = splitter.create_documents([transcript])
-        
-        # # 3. Use standard light-weight embeddings
-        embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
-        
-        # # 4. Create FAISS Database
+
+        # 3. Use standard lightweight embeddings
+        embeddings = HuggingFaceEmbeddings(
+            model_name=EMBEDDING_MODEL
+        )
+
+        # 4. Create FAISS Database
         vector_store = FAISS.from_documents(chunks, embeddings)
-        
+
         # Cache retriever locally for your chat endpoint
-        video_cache[video_id] = vector_store.as_retriever(search_type="similarity", search_kwargs={"k": RETRIEVAL_K})
+        video_cache[video_id] = vector_store.as_retriever(
+            search_type="similarity",
+            search_kwargs={"k": RETRIEVAL_K}
+        )
+
         logger.info("Successfully indexed video: %s", video_id)
-        return {"status": "success", "message": "Video transcript indexed successfully!"}
+
+        return {
+            "status": "success",
+            "message": "Video transcript indexed successfully!"
+        }
         
-    except TranscriptsDisabled:
+    except CaptionsUnavailableError:
         raise HTTPException(
             status_code=400,
             detail={
-                "code": "CAPTIONS_DISABLED",
-                "message": "Captions are disabled for this YouTube video."
+                "code": "CAPTIONS_UNAVAILABLE",
+                "message": "Captions are unavailable for this video."
+            }
+        )
+
+    except VideoUnavailableError:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "VIDEO_UNAVAILABLE",
+                "message": "The YouTube video is unavailable."
+            }
+        )
+
+    except InvalidVideoIdError:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "INVALID_VIDEO_ID",
+                "message": "The YouTube video ID is invalid."
+            }
+        )
+
+    except TranscriptFetchError:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "code": "TRANSCRIPT_FETCH_FAILED",
+                "message": "Unable to retrieve the transcript from YouTube."
             }
         )
 
